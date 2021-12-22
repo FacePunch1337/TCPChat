@@ -6,6 +6,10 @@
 #include <Windows.h>
 #include <wchar.h>
 #include <stdio.h>
+#include <vector>
+#include <time.h>
+#include "ChatMessage.h"
+
 
 #define CMD_START_SERVER  1001
 #define CMD_STOP_SERVER   1002
@@ -16,10 +20,13 @@ HWND btnStart, btnStop;
 HWND editIP, editPort;
 SOCKET listenSocket;
 
+
 LRESULT CALLBACK  WinProc(HWND, UINT, WPARAM, LPARAM);
 DWORD   CALLBACK  CreateUI(LPVOID);  // User Interface
 DWORD   CALLBACK  StartServer(LPVOID);
 DWORD   CALLBACK  StopServer(LPVOID);
+
+
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_     PWSTR cmdLine, _In_     int showMode) {
 	hInst = hInstance;
@@ -230,20 +237,30 @@ DWORD CALLBACK StartServer(LPVOID params) {
 			buff[receivedCnt] = '\0';
 			strcat_s(data, buff);   // data += chunk (buff)
 		} while (strlen(buff) == BUFF_LEN);  // '\0' - end of data
-
-		SYSTEMTIME  time;
-		GetLocalTime(&time);
+		
+		
 
 
 	
 
 
 		// data is sum of all chunks from socket
-		SendMessageA(serverLog, LB_ADDSTRING, 0, (LPARAM)data);
-
-		// send answer to client - write in socket
-		send(acceptSocket, "200", 4, 0);   // 4 = 3(digits) + \0
-
+		
+		
+		ChatMessage* message = new ChatMessage();
+		if (message->parseString(data)) {
+			//message->SetDT(message->GetDT() - 860000);
+			char* mts = message->ToString();
+			SendMessageA(serverLog, LB_ADDSTRING, 0,
+				(LPARAM)mts);
+			// send answer to client - write in socket
+			send(acceptSocket, mts, strlen(mts) + 1, 0);
+		}
+		else {
+			SendMessageA(serverLog, LB_ADDSTRING, 0,
+				(LPARAM)data);
+			send(acceptSocket, "500", 4, 0);
+		}
 		// closing socket
 		shutdown(acceptSocket, SD_BOTH);
 		closesocket(acceptSocket);
@@ -265,3 +282,5 @@ DWORD CALLBACK StopServer(LPVOID params) {
 
 	return 0;
 }
+
+
