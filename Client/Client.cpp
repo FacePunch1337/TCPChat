@@ -1,14 +1,50 @@
 ﻿#pragma comment (lib, "Ws2_32.lib")
 
+/*───────▄▀▀▀▀▀▀▀▀▀▀▄▄
+────▄▀▀░░░░░░░░░░░░░▀▄
+──▄▀░░░░░░░░░░░░░░░░░░▀▄
+──█░░░░░░░░░░░░░░░░░░░░░▀▄
+─▐▌░░░░░░░░▄▄▄▄▄▄▄░░░░░░░▐▌
+─█░░░░░░░░░░░▄▄▄▄░░▀▀▀▀▀░░█
+▐▌░░░░░░░▀▀▀▀░░░░░▀▀▀▀▀░░░▐▌
+█░░░░░░░░░▄▄▀▀▀▀▀░░░░▀▀▀▀▄░█
+█░░░░░░░░░░░░░░░░▀░░░▐░░░░░▐▌
+▐▌░░░░░░░░░▐▀▀██▄░░░░░░▄▄▄░▐▌
+─█░░░░░░░░░░░▀▀▀░░░░░░▀▀██░░█
+─▐▌░░░░▄░░░░░░░░░░░░░▌░░░░░░█
+──▐▌░░▐░░░░░░░░░░░░░░▀▄░░░░░█
+───█░░░▌░░░░░░░░▐▀░░░░▄▀░░░▐▌
+───▐▌░░▀▄░░░░░░░░▀░▀░▀▀░░░▄▀
+───▐▌░░▐▀▄░░░░░░░░░░░░░░░░█
+───▐▌░░░▌░▀▄░░░░▀▀▀▀▀▀░░░█
+───█░░░▀░░░░▀▄░░░░░░░░░░▄▀
+──▐▌░░░░░░░░░░▀▄░░░░░░▄▀
+─▄▀░░░▄▀░░░░░░░░▀▀▀▀█▀
+▀░░░▄▀░░░░░░░░░░▀░░░▀▀▀▀▄▄▄▄▄
+
+░█████╗░██╗░░░░░██╗███████╗███╗░░██╗████████╗
+██╔══██╗██║░░░░░██║██╔════╝████╗░██║╚══██╔══╝
+██║░░╚═╝██║░░░░░██║█████╗░░██╔██╗██║░░░██║░░░
+██║░░██╗██║░░░░░██║██╔══╝░░██║╚████║░░░██║░░░
+╚█████╔╝███████╗██║███████╗██║░╚███║░░░██║░░░
+░╚════╝░╚══════╝╚═╝╚══════╝╚═╝░░╚══╝░░░╚═╝░░░
+
+*/
+
 #define _CRT_SECURE_NO_WARNINGS
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <Windows.h>
 #include <wchar.h>
 #include <stdio.h>
+#include <list>
+#include "../TCPChat/ChatMessage.h"
 
 #define CMD_SEND_MESSAGE  1001
 
+
+
+std::list<ChatMessage*> messages;
 HINSTANCE hInst;
 HWND grpEndpoint, grpLog, chatLog;
 HWND btnSend, editMessage;
@@ -17,6 +53,7 @@ HWND editIP, editPort, editNickName;
 LRESULT CALLBACK  WinProc(HWND, UINT, WPARAM, LPARAM);
 DWORD   CALLBACK  CreateUI(LPVOID);  // User Interface
 DWORD   CALLBACK  SendChatMessage(LPVOID);
+bool DeserializeMessages(char*);
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_     PWSTR cmdLine, _In_     int showMode) {
 	hInst = hInstance;
@@ -171,24 +208,24 @@ DWORD CALLBACK SendChatMessage(LPVOID params) {
 		return -30;
 	}
 
-	const size_t chatMSG_LEN = 542;
-	char editMsg[chatMSG_LEN];
-	SendMessageA(editMessage, WM_GETTEXT, chatMSG_LEN, (LPARAM)editMsg);
+	const size_t MSG_LEN = 4096;
+	const size_t NIK_LEN = 16;
 
-	char username[16];
-	SendMessageA(editNickName, WM_GETTEXT, 30, (LPARAM)username);
+	char chatMsg[MSG_LEN];
+	char chatNik[NIK_LEN];
 
-	const size_t MSG_LEN = 542;
-	char message[MSG_LEN];
+	int nikLen = SendMessageA(editNickName, WM_GETTEXT,
+		NIK_LEN - 1, (LPARAM)chatNik);
+	chatNik[nikLen] = '\0';
 
-	_snprintf_s(message, MSG_LEN, MSG_LEN, "%s: %s", username, editMsg);
+	int msgLen = SendMessageA(editMessage, WM_GETTEXT,
+		MSG_LEN - NIK_LEN - 1, (LPARAM)chatMsg);
+	chatMsg[msgLen] = '\0';
 
-	SYSTEMTIME  time;
-	GetLocalTime(&time);
+	strcat(chatMsg, "\t");
+	strcat(chatMsg, chatNik);
 
-	_snprintf_s(message, MSG_LEN, MSG_LEN, "%s    [%d:%d]", message, time.wHour, time.wMinute);
-	
-	int sent = send(clientSocket, message, MSG_LEN + 1, 0);
+	int sent = send(clientSocket, chatMsg, msgLen + nikLen + 2, 0);
 	if (sent == SOCKET_ERROR) {
 		_snwprintf_s(str, MAX_LEN,
 			L"Sending error %d", WSAGetLastError());
@@ -199,21 +236,52 @@ DWORD CALLBACK SendChatMessage(LPVOID params) {
 		return -40;
 	}
 
-
-
 	// receive in the same buffer - chatMsg
-	int receivedCnt = recv(clientSocket, message, MSG_LEN - 1, 0);
+	int receivedCnt = recv(clientSocket, chatMsg, MSG_LEN - 1, 0);
 	if (receivedCnt > 0) {
-		
-		editMsg[receivedCnt] = '\0';
-		
-		SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)message);
+		chatMsg[receivedCnt] = '\0';
+		/*ChatMessage* message = new ChatMessage();
+		if (message->parseStringDT(chatMsg))
+			SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)message->ToClientString2());
+		else
+			SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)L"Error");*/
+		DeserializeMessages(chatMsg);
 	}
+	SendMessageW(chatLog, WM_VSCROLL, MAKEWPARAM(SB_BOTTOM, 0), NULL);
 
 	shutdown(clientSocket, SD_BOTH);
 	closesocket(clientSocket);
 	WSACleanup();
 
-	SendMessageW(chatLog, LB_ADDSTRING, 0, (LPARAM)L"-End-");
+	// SendMessageW(chatLog, LB_ADDSTRING, 0, (LPARAM)L"-End-");
 	return 0;
 }
+
+bool DeserializeMessages(char* str)
+{
+	if (str == NULL) return false;
+	size_t len = 0, r = 0;
+	char* start = str;
+	for (auto it : messages) delete it;
+	while (str[len] != '\0') {
+		if (str[len] == '\r') {
+			r += 1;
+			str[len] = '\0';
+			ChatMessage* m = new ChatMessage();
+			m->parseStringDT(start);
+			messages.push_back(m);
+			start = str + len + 1;
+		}
+		len += 1;
+	}
+
+	ChatMessage* m = new ChatMessage();
+	m->parseStringDT(start);
+	messages.push_back(m);
+	return true;
+}
+
+
+
+
+

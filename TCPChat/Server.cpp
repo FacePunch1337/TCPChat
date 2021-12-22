@@ -1,14 +1,56 @@
-#pragma comment (lib, "Ws2_32.lib")
+﻿#pragma comment (lib, "Ws2_32.lib")
 
+
+/*───────▄▀▀▀▀▀▀▀▀▀▀▄▄
+────▄▀▀░░░░░░░░░░░░░▀▄
+──▄▀░░░░░░░░░░░░░░░░░░▀▄
+──█░░░░░░░░░░░░░░░░░░░░░▀▄
+─▐▌░░░░░░░░▄▄▄▄▄▄▄░░░░░░░▐▌
+─█░░░░░░░░░░░▄▄▄▄░░▀▀▀▀▀░░█
+▐▌░░░░░░░▀▀▀▀░░░░░▀▀▀▀▀░░░▐▌
+█░░░░░░░░░▄▄▀▀▀▀▀░░░░▀▀▀▀▄░█
+█░░░░░░░░░░░░░░░░▀░░░▐░░░░░▐▌
+▐▌░░░░░░░░░▐▀▀██▄░░░░░░▄▄▄░▐▌
+─█░░░░░░░░░░░▀▀▀░░░░░░▀▀██░░█
+─▐▌░░░░▄░░░░░░░░░░░░░▌░░░░░░█
+──▐▌░░▐░░░░░░░░░░░░░░▀▄░░░░░█
+───█░░░▌░░░░░░░░▐▀░░░░▄▀░░░▐▌
+───▐▌░░▀▄░░░░░░░░▀░▀░▀▀░░░▄▀
+───▐▌░░▐▀▄░░░░░░░░░░░░░░░░█
+───▐▌░░░▌░▀▄░░░░▀▀▀▀▀▀░░░█
+───█░░░▀░░░░▀▄░░░░░░░░░░▄▀
+──▐▌░░░░░░░░░░▀▄░░░░░░▄▀
+─▄▀░░░▄▀░░░░░░░░▀▀▀▀█▀
+▀░░░▄▀░░░░░░░░░░▀░░░▀▀▀▀▄▄▄▄▄
+
+░██████╗███████╗██████╗░██╗░░░██╗███████╗██████╗░
+██╔════╝██╔════╝██╔══██╗██║░░░██║██╔════╝██╔══██╗
+╚█████╗░█████╗░░██████╔╝╚██╗░██╔╝█████╗░░██████╔╝
+░╚═══██╗██╔══╝░░██╔══██╗░╚████╔╝░██╔══╝░░██╔══██╗
+██████╔╝███████╗██║░░██║░░╚██╔╝░░███████╗██║░░██║
+╚═════╝░╚══════╝╚═╝░░╚═╝░░░╚═╝░░░╚══════╝╚═╝░░╚═╝
+
+*/
 #define _CRT_SECURE_NO_WARNINGS
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <Windows.h>
 #include <wchar.h>
 #include <stdio.h>
+#include <vector>
+#include <time.h>
+#include <list>
+#include <queue>
+#include "ChatMessage.h"
+
+
+
 
 #define CMD_START_SERVER  1001
 #define CMD_STOP_SERVER   1002
+#define MAX_MESSAGES      100
+
+std::list<ChatMessage*> messages;
 
 HINSTANCE hInst;
 HWND grpEndpoint, grpLog, serverLog;
@@ -16,10 +58,14 @@ HWND btnStart, btnStop;
 HWND editIP, editPort;
 SOCKET listenSocket;
 
+
 LRESULT CALLBACK  WinProc(HWND, UINT, WPARAM, LPARAM);
 DWORD   CALLBACK  CreateUI(LPVOID);  // User Interface
 DWORD   CALLBACK  StartServer(LPVOID);
 DWORD   CALLBACK  StopServer(LPVOID);
+char*			  SerializeMessages();
+
+
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_     PWSTR cmdLine, _In_     int showMode) {
 	hInst = hInstance;
@@ -230,20 +276,42 @@ DWORD CALLBACK StartServer(LPVOID params) {
 			buff[receivedCnt] = '\0';
 			strcat_s(data, buff);   // data += chunk (buff)
 		} while (strlen(buff) == BUFF_LEN);  // '\0' - end of data
-
-		SYSTEMTIME  time;
-		GetLocalTime(&time);
+		
+		
 
 
 	
 
 
 		// data is sum of all chunks from socket
-		SendMessageA(serverLog, LB_ADDSTRING, 0, (LPARAM)data);
+		
+		
+		
+		ChatMessage* message = new ChatMessage();
 
-		// send answer to client - write in socket
-		send(acceptSocket, "200", 4, 0);   // 4 = 3(digits) + \0
-
+		if (message->parseString(data)) {
+		// message->SetDT(message->GetDT() - 860000000);
+						// append to collection
+			messages.push_back(message);
+			if (messages.size() > MAX_MESSAGES) {
+				delete messages.front();
+				messages.pop_front();
+			}
+			
+			char* mts = message->ToString();
+			SendMessageA(serverLog, LB_ADDSTRING, 0,
+				(LPARAM)mts);
+			mts = SerializeMessages();
+			// send answer to client - write in socket
+			send(acceptSocket, mts, strlen(mts) + 1, 0);
+			delete[] mts;
+		}
+		else {
+			delete message;
+			SendMessageA(serverLog, LB_ADDSTRING, 0,
+				(LPARAM)data);
+			send(acceptSocket, "500", 4, 0);
+		}
 		// closing socket
 		shutdown(acceptSocket, SD_BOTH);
 		closesocket(acceptSocket);
@@ -264,4 +332,27 @@ DWORD CALLBACK StopServer(LPVOID params) {
 	EnableWindow(btnStart, TRUE);
 
 	return 0;
+}
+std::queue <ChatMessage*> msg_queue;
+
+char* SerializeMessages() {
+	size_t n = messages.size();
+	char** strs = new char* [n];
+	size_t total = 0, i = 0;
+
+	for (auto it : messages) {
+		strs[i] = it->ToString();
+		total += strlen(strs[i]) + 1;
+		++i;
+	}
+
+
+	char* ret = new char[total];
+	ret[0] = '\0';
+	for (i = 0; i < n; ++i) {
+		strcat(ret, strs[i]);
+		strcat(ret, "\r");
+	}
+
+	return ret;
 }
