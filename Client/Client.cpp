@@ -300,86 +300,60 @@ DWORD   CALLBACK  SendToServer(LPVOID params) {
 	// -- end configuration of [addr] --
 
 	// Connect to endpoint
-	if (connection_to_server == true) {
+	err = connect(clientSocket, (SOCKADDR*)&addr, sizeof(addr));
+	if (err == SOCKET_ERROR) {
+		_snwprintf_s(str, MAX_LEN,
+			L"Socket connect error %d", WSAGetLastError());
+		closesocket(clientSocket);
+		WSACleanup();
+		clientSocket = INVALID_SOCKET;
+		SendMessageW(chatLog, LB_ADDSTRING, 0, (LPARAM)str);
+		return -30;
+	}
+
+	const size_t chatMSG_LEN = 542;
+	char editMsg[chatMSG_LEN];
+	SendMessageA(editMessage, WM_GETTEXT, chatMSG_LEN, (LPARAM)editMsg);
+
+	char username[16];
+	SendMessageA(editNickName, WM_GETTEXT, 30, (LPARAM)username);
+
+	const size_t MSG_LEN = 542;
+	char message[MSG_LEN];
+
+	_snprintf_s(message, MSG_LEN, MSG_LEN, "%s: %s", username, editMsg);
+
+	SYSTEMTIME  time;
+	GetLocalTime(&time);
+
+	_snprintf_s(message, MSG_LEN, MSG_LEN, "%s    [%d:%d]", message, time.wHour, time.wMinute);
+	
+	int sent = send(clientSocket, message, MSG_LEN + 1, 0);
+	if (sent == SOCKET_ERROR) {
+		_snwprintf_s(str, MAX_LEN,
+			L"Sending error %d", WSAGetLastError());
+		closesocket(clientSocket);
+		WSACleanup();
+		clientSocket = INVALID_SOCKET;
+		SendMessageW(chatLog, LB_ADDSTRING, 0, (LPARAM)str);
+		return -40;
+	}
 
 
-		err = connect(clientSocket, (SOCKADDR*)&addr, sizeof(addr));
-		if (err == SOCKET_ERROR) {
-			_snwprintf_s(str, MAX_LEN, L"Socket connect error %d", WSAGetLastError());
-			closesocket(clientSocket);
-			WSACleanup();
-			clientSocket = INVALID_SOCKET;
-			SendMessageW(chatLog, LB_ADDSTRING, 0, (LPARAM)str);
-			return -30;
-		}
-		int sent = send(clientSocket, data, strlen(data) + 1, 0);
-		if (sent == SOCKET_ERROR) {
-			_snwprintf_s(str, MAX_LEN, L"Sending error %d", WSAGetLastError());
-			closesocket(clientSocket);
-			WSACleanup();
-			clientSocket = INVALID_SOCKET;
-			SendMessageW(chatLog, LB_ADDSTRING, 0, (LPARAM)str);
-			return -40;
-		}
 
-		int receivedCnt = recv(clientSocket, chatMsg, MSG_LEN - 1, 0);
-		if (receivedCnt > 0) {
-			chatMsg[receivedCnt] = '\0';
-
-		}
-		else {
-			chatMsg[0] = '\0';
-		}
+	// receive in the same buffer - chatMsg
+	int receivedCnt = recv(clientSocket, message, MSG_LEN - 1, 0);
+	if (receivedCnt > 0) {
+		
+		editMsg[receivedCnt] = '\0';
+		
+		SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)message);
+	}
 
 		shutdown(clientSocket, SD_BOTH);
 		closesocket(clientSocket);
 		WSACleanup();
 
-		ReleaseMutex(sendLock);
-
-		return receivedCnt;
-	}
-	else
-		SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)"not connect");
-}
-
-bool  DeserializeMessages(char* str) {
-	if (str == NULL) return false;
-	size_t len = 0, r = 0;
-	char* start = str;
-
-	for (auto it : messages) delete it;
-	messages.clear();
-	SendMessageA(chatLog, LB_RESETCONTENT, 0, 0);
-
-	while (str[len] != '\0') {
-		if (str[len] == '\r') {
-			r += 1;
-			str[len] = '\0';
-			ChatMessage* m = new ChatMessage();
-			if (m->parseStringDT(start)) {
-				messages.push_back(m);
-				SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)m->ToClientString());
-			}
-			else {
-				delete m;
-				SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)"Message parse error");
-			}
-			start = str + len + 1;
-		}
-		len += 1;
-	}
-	if (len > r) {
-		ChatMessage* m = new ChatMessage();
-		if (m->parseStringDT(start)) {
-			messages.push_back(m);
-			SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)m->ToClientString());
-		}
-		else {
-			delete m;
-			SendMessageA(chatLog, LB_ADDSTRING, 0, (LPARAM)"Message parse error");
-		}
-	}
-	SendMessageW(chatLog, WM_VSCROLL, MAKEWPARAM(SB_BOTTOM, 0), NULL);
-	return true;
+	SendMessageW(chatLog, LB_ADDSTRING, 0, (LPARAM)L"-End-");
+	return 0;
 }
