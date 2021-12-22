@@ -136,6 +136,7 @@ LRESULT CALLBACK WinProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
+
 DWORD CALLBACK CreateUI(LPVOID params) {
 	HWND hWnd = *((HWND*)params);
 	grpEndpoint = CreateWindowExW(0, L"Button", L"EndPoint", BS_GROUPBOX | WS_CHILD | WS_VISIBLE,
@@ -247,6 +248,8 @@ DWORD CALLBACK StartServer(LPVOID params) {
 	char data[DATA_LEN];      // big buffer for all transfered chunks
 	int receivedCnt;          // chunk size
 
+	messages.clear();  // truncate collection
+
 	while (true) {
 		// wait for network activity
 		acceptSocket = accept(listenSocket, NULL, NULL);
@@ -267,51 +270,53 @@ DWORD CALLBACK StartServer(LPVOID params) {
 				break;
 			}
 			if (receivedCnt < 0) {  // receiving error
-				closesocket(acceptSocket);
 				_snwprintf_s(str, MAX_LEN,
 					L"Communication socket error %d", WSAGetLastError());
+				closesocket(acceptSocket);
 				SendMessageW(serverLog, LB_ADDSTRING, 0, (LPARAM)str);
 				break;
 			}
 			buff[receivedCnt] = '\0';
 			strcat_s(data, buff);   // data += chunk (buff)
-		} while (strlen(buff) == BUFF_LEN);  // '\0' - end of data
-		
-		
-
-
-	
-
-
+		} while (buff[receivedCnt - 1] != '\0');  // '\0' - end of data
 		// data is sum of all chunks from socket
-		
-		
-		
-		ChatMessage* message = new ChatMessage();
 
-		if (message->parseString(data)) {
-		// message->SetDT(message->GetDT() - 860000000);
-						// append to collection
-			messages.push_back(message);
-			if (messages.size() > MAX_MESSAGES) {
-				delete messages.front();
-				messages.pop_front();
-			}
-			
-			char* mts = message->ToString();
-			SendMessageA(serverLog, LB_ADDSTRING, 0,
-				(LPARAM)mts);
+		char* mts;
+
+		if (strlen(data) == 0) {  // only \0 in request
 			mts = SerializeMessages();
-			// send answer to client - write in socket
 			send(acceptSocket, mts, strlen(mts) + 1, 0);
-			delete[] mts;
+			// delete[] mts;
 		}
 		else {
-			delete message;
-			SendMessageA(serverLog, LB_ADDSTRING, 0,
-				(LPARAM)data);
-			send(acceptSocket, "500", 4, 0);
+			// extract message from data
+			ChatMessage* message = new ChatMessage();
+			if (message->parseString(data)) {
+				// message->setDt(message->getDt() - 86000);
+							// append to collection
+				messages.push_back(message);
+				if (messages.size() > MAX_MESSAGES) {
+					delete messages.front();
+					messages.pop_front();
+				}
+				mts = message->ToString();
+				SendMessageA(serverLog, LB_ADDSTRING, 0,
+					(LPARAM)mts);
+
+				mts = SerializeMessages();
+				// send answer to client - write in socket
+				send(acceptSocket, mts, strlen(mts) + 1, 0);
+				 //delete[] mts;
+			}
+			else {
+				delete message;
+				SendMessageA(serverLog, LB_ADDSTRING, 0,
+					(LPARAM)data);
+				send(acceptSocket, "500", 4, 0);
+			}
 		}
+
+
 		// closing socket
 		shutdown(acceptSocket, SD_BOTH);
 		closesocket(acceptSocket);
@@ -333,19 +338,21 @@ DWORD CALLBACK StopServer(LPVOID params) {
 
 	return 0;
 }
-std::queue <ChatMessage*> msg_queue;
 
 char* SerializeMessages() {
+	// message->toString()  --> char*
+	// collect them
+	// calc size and build string
+	// ==> StringBuilder
 	size_t n = messages.size();
 	char** strs = new char* [n];
 	size_t total = 0, i = 0;
 
 	for (auto it : messages) {
 		strs[i] = it->ToString();
-		total += strlen(strs[i]) + 1;
+		total += strlen(strs[i]) + 1;  // +1 - delimiter char
 		++i;
 	}
-
 
 	char* ret = new char[total];
 	ret[0] = '\0';
@@ -353,6 +360,7 @@ char* SerializeMessages() {
 		strcat(ret, strs[i]);
 		strcat(ret, "\r");
 	}
+	ret[total - 1] = '\0';
 
 	return ret;
 }

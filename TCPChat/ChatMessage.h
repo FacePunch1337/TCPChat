@@ -208,6 +208,8 @@ public:
 
 	~ChatMessage() {
 		if (_str) delete[] _str;
+		if (nik) delete[] nik;
+		if (text) delete[] text;
 	}
 
 };
