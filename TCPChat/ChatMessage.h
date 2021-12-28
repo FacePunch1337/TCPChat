@@ -13,7 +13,6 @@ private:
 	char* text;
 	time_t dt;
 	char* _str;
-	
 	size_t size;
 public:
 
@@ -78,7 +77,7 @@ public:
 		timestamp[i - tabPosition - 1] = str[i];
 
 		dt = atoi(timestamp);
-
+		
 		return true;
 	}
 
@@ -123,10 +122,13 @@ public:
 		_str = new char[dt_len + 1 + nik_len + 1 + text_len + 1];
 		sprintf(_str, "%s\t%s\t%s",
 			this->text, this->nik, timestamp);
+		
 		return _str;
 	}
 
 	char* ToClientString() {
+
+		
 		if (this->text == NULL || this->nik == NULL)
 			return NULL;
 
@@ -199,11 +201,21 @@ public:
 		}
 	
 		
+		
 		delete t;
 		return _str;
 	}
 	
-
+	char* UserJoinToServer() {
+		if (this->nik == NULL)
+			return NULL;
+		int nik_len = strlen(this->nik);
+		if (_str) delete[] _str;
+		_str = new char[2022];
+		sprintf(_str, " %s join to server",
+			this->nik);
+		return _str;
+	}
 
 
 	~ChatMessage() {

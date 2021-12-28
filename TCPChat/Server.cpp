@@ -51,6 +51,7 @@
 #define MAX_MESSAGES      100
 
 std::list<ChatMessage*> messages;
+std::vector<ChatMessage*> usernames;
 
 HINSTANCE hInst;
 HWND grpEndpoint, grpLog, serverLog;
@@ -208,6 +209,8 @@ DWORD CALLBACK StartServer(LPVOID params) {
 	LRESULT portLen = SendMessageA(editPort, WM_GETTEXT, 7, (LPARAM)port);
 	port[portLen] = '\0';
 	addr.sin_port = htons(atoi(port));  // 3. Port
+
+	
 	// -- end configuration of [addr] --
 
 	// Socket binding - config [addr] applying to socket
@@ -231,28 +234,42 @@ DWORD CALLBACK StartServer(LPVOID params) {
 		WSACleanup();
 		listenSocket = INVALID_SOCKET;
 		SendMessageW(serverLog, LB_ADDSTRING, 0, (LPARAM)str);
+		
 		return -40;
 	}
 
 	// Log start message
-	SendMessageW(serverLog, LB_ADDSTRING, 0, (LPARAM)L"Server starts");
+	
+
+	WCHAR* ipW = new WCHAR[20];
+	WCHAR* portW = new WCHAR[8];
+	
+	mbstowcs(ipW, ip, 20);
+	mbstowcs(portW, port, 8);
+	
+	WCHAR strStart[200];
+	_snwprintf(strStart, 200, L"Server starts %s::%s", ipW, portW);
+	delete[] ipW;
+	delete[] portW;
+	SendMessageW(serverLog, LB_ADDSTRING, 0, (LPARAM)strStart);
 	EnableWindow(btnStop, TRUE);
 	EnableWindow(btnStart, FALSE);
 
-	// Listening loop
-	SOCKET acceptSocket;  // second socket - for communication
+	
 
+	SOCKET acceptSocket;	// second Socket - for communication
 	const size_t BUFF_LEN = 8;
 	const size_t DATA_LEN = 2048;
-	char buff[BUFF_LEN + 1];  // small buffer for transfered chunk (+ \0)
-	char data[DATA_LEN];      // big buffer for all transfered chunks
-	int receivedCnt;          // chunk size
+	char buff[BUFF_LEN + 1];	// small buffer for transfered chunk (+ '\0')
+	char data[DATA_LEN];	// big buffer for all transfered chunks
+	int receivedCnt;		// chunk size
 
-	messages.clear();  // truncate collection
+	messages.clear();
 
 	while (true) {
 		// wait for network activity
 		acceptSocket = accept(listenSocket, NULL, NULL);
+		
 		if (acceptSocket == INVALID_SOCKET) {
 			_snwprintf_s(str, MAX_LEN,
 				L"Accept socket error %d", WSAGetLastError());
@@ -264,12 +281,12 @@ DWORD CALLBACK StartServer(LPVOID params) {
 		data[0] = '\0';
 		do {
 			receivedCnt = recv(acceptSocket, buff, BUFF_LEN, 0);
-			if (receivedCnt == 0) {  // 0 - connection closed by client
+			if (receivedCnt == 0) {	// 0 - connection closed by client
 				closesocket(acceptSocket);
 				SendMessageW(serverLog, LB_ADDSTRING, 0, (LPARAM)L"Connection closed");
 				break;
 			}
-			if (receivedCnt < 0) {  // receiving error
+			if (receivedCnt < 0) {	// <0 - recieving error
 				_snwprintf_s(str, MAX_LEN,
 					L"Communication socket error %d", WSAGetLastError());
 				closesocket(acceptSocket);
@@ -277,49 +294,61 @@ DWORD CALLBACK StartServer(LPVOID params) {
 				break;
 			}
 			buff[receivedCnt] = '\0';
-			strcat_s(data, buff);   // data += chunk (buff)
-		} while (buff[receivedCnt - 1] != '\0');  // '\0' - end of data
+			strcat(data, buff);	// data += chunk (buff)
+		} while (buff[receivedCnt - 1] != '\0');	// '\0' - end of data
+
 		// data is sum of all chunks from socket
-
 		char* mts;
-
-		if (strlen(data) == 0) {  // only \0 in request
+		
+		if (strlen(data) == 0) {	// only \0 in request
 			mts = SerializeMessages();
+			
 			send(acceptSocket, mts, strlen(mts) + 1, 0);
-			// delete[] mts;
+			
+			delete[] mts;
+			
 		}
 		else {
 			// extract message from data
 			ChatMessage* message = new ChatMessage();
+			ChatMessage* username = new ChatMessage();
 			if (message->parseString(data)) {
-				// message->setDt(message->getDt() - 86000);
-							// append to collection
+				//message->setDt(message->getDt() - 260000);
 				messages.push_back(message);
+				
 				if (messages.size() > MAX_MESSAGES) {
 					delete messages.front();
 					messages.pop_front();
 				}
+				SerializeMessages();
 				mts = message->ToString();
-				SendMessageA(serverLog, LB_ADDSTRING, 0,
-					(LPARAM)mts);
+				
+				
+				SendMessageA(serverLog, LB_ADDSTRING, 0, (LPARAM)mts);
+				
+				
 
 				mts = SerializeMessages();
+			
+
+
 				// send answer to client - write in socket
 				send(acceptSocket, mts, strlen(mts) + 1, 0);
-				 //delete[] mts;
+			
+				//delete[] mts;
+
 			}
 			else {
 				delete message;
-				SendMessageA(serverLog, LB_ADDSTRING, 0,
-					(LPARAM)data);
+				SendMessageA(serverLog, LB_ADDSTRING, 0, (LPARAM)data);
 				send(acceptSocket, "500", 4, 0);
 			}
 		}
 
-
 		// closing socket
 		shutdown(acceptSocket, SD_BOTH);
 		closesocket(acceptSocket);
+
 	}
 
 	return 0;
@@ -340,27 +369,32 @@ DWORD CALLBACK StopServer(LPVOID params) {
 }
 
 char* SerializeMessages() {
-	// message->toString()  --> char*
+	// message->toString() --> char*
 	// collect them
 	// calc size and build string
 	// ==> StringBuilder
+	char* ret;
 	size_t n = messages.size();
+
+	if (n == 0) {
+		ret = new char[1]{ '\0' };
+		return ret;
+	}
 	char** strs = new char* [n];
 	size_t total = 0, i = 0;
-
 	for (auto it : messages) {
 		strs[i] = it->ToString();
-		total += strlen(strs[i]) + 1;  // +1 - delimiter char
+		total += strlen(strs[i]) + 1;	// +1 - delimiter char
 		++i;
 	}
 
-	char* ret = new char[total];
+	ret = new char[total + 1];
 	ret[0] = '\0';
-	for (i = 0; i < n; ++i) {
+	for (size_t i = 0; i < n; i++)
+	{
 		strcat(ret, strs[i]);
 		strcat(ret, "\r");
 	}
 	ret[total - 1] = '\0';
-
 	return ret;
 }
